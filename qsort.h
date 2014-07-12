@@ -1,6 +1,12 @@
 /* Copyright (C) 1991,1992,1996,1997,1999,2004 Free Software Foundation, Inc.
+ * Copyright (C) 2014 Daniel Santos <daniel.santos@pobox.com>
+
    This file is part of the GNU C Library.
    Written by Douglas C. Schmidt (schmidt@ics.uci.edu).
+
+   This file has been modified to implement the qsort algorithm as a C
+   pseudo-template function. Note that this is not what you get when you call
+   qsort with glibc, but only one of the algorithms that glibc may choose.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
