@@ -1,12 +1,13 @@
 /* Copyright (C) 1991,1992,1996,1997,1999,2004 Free Software Foundation, Inc.
  * Copyright (C) 2014 Daniel Santos <daniel.santos@pobox.com>
 
-   This file is part of the GNU C Library.
-   Written by Douglas C. Schmidt (schmidt@ics.uci.edu).
+   This is a modified version of stdlib/qsort.c from the the GNU C Library
+   version 2.17 originally written by Douglas C. Schmidt (schmidt@ics.uci.edu).
+   It has been modified to implement the qsort algorithm as a C pseudo-template
+   function. Note that this is not what you get when you call qsort or qsort_r
+   with glibc, as it will prefer to use an msort function but use
+   _quicksort, ...
 
-   This file has been modified to implement the qsort algorithm as a C
-   pseudo-template function. Note that this is not what you get when you call
-   qsort with glibc, but only one of the algorithms that glibc may choose.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -35,9 +36,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdalign.h>
 
 #include "compiler.h"
-
+typedef int (*__compar_d_fn_t) (const void *, const void *, void *);
 /* GNU's quicksort implementation. We have to compile with -D_GNU_SOURCE
  * and include their qsort.c in the project for this to link */
 extern void _quicksort (void *const pbase, size_t total_elems, size_t size,
@@ -55,11 +57,13 @@ struct qsort_def {
 
 static __always_inline void
 _quicksort_copy(const struct qsort_def *def, void *dest, const void *src) {
+	assert(0);
 	BUILD_BUG_ON_MSG(1, "not implemented");
 }
 
 static __always_inline void
 _quicksort_swap(const struct qsort_def *def, void *a, void *b) {
+	assert(0);
 	BUILD_BUG_ON_MSG(1, "not implemented");
 }
 
@@ -71,43 +75,51 @@ _quicksort_swap(const struct qsort_def *def, void *a, void *b) {
  * tmp:		a temporary buffer to use
  * tmp_size:	size of tmp
  */
-static __always_inline void
+static __always_inline __flatten void
 _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size) {
 	char *r = right;
 	char *l = left;
-	const ssize_t dist = (l - r) / (ssize_t)def->size; /* right to left offset */
+	const ssize_t dist = (r - l) / (ssize_t)def->size; /* left to right offset */
 
+//	assert_const(def->copy);
+//	assert_const(def->swap);
+//	BUILD_BUG_ON(!def->copy);
+//	BUILD_BUG_ON(!def->swap);
 	void (* const copy)(const struct qsort_def *def, void *dest, const void *src)
-		= def->copy ? def->copy : _quicksort_copy;
+		= def->copy;// ? def->copy : _quicksort_copy;
 	void (* const swap)(const struct qsort_def *def, void *a, void *b)
-		= def->swap ? def->swap : _quicksort_swap;
+		= def->swap;// ? def->swap : _quicksort_swap;
+
+//        assert_const(copy);
+//        assert_const(swap);
 
 	/* validate pointer alignment */
 	assert_early(!((uintptr_t)l & (def->align - 1)));
 	assert_early(!((uintptr_t)r & (def->align - 1)));
 
 	/* validate distance between pointers is correct multiple */
-	assert_early(!((r - l) & (def->size - 1)));
-	assert_early(dist != 0);
-	//assert_early(dist < (ssize_t)0);	/* should be negative */
-	//assert_const(dist < 0);
-	if (__builtin_constant_p(dist)){}
+        assert(dist != 0);
+        assert(dist > 0);
 
-	if (dist == -1)
+//fprintf(stderr, "right = %p, left = %p, (0x%016lx -- 0x%016lx) dist = %ld\n", right, left, *(unsigned long *)right, *(unsigned long *)left, dist);
+	if (dist == 1) {
 		swap(def, left, right);
-	else if (def->size <= tmp_size) {
+//fprintf(stderr, "right = %p, left = %p, dist = %ld\n", right, left, dist);
+	} else if (def->size <= tmp_size) {
 		ssize_t i;		/* here, i is a negative elem. index */
-		char *right_plus_one = r + def->size;
+		char *left_minus_one = l - def->size;
 
-		copy(def, tmp, r);
-
+		def->copy(def, tmp, r);
+//fprintf(stderr, "r = %p, l = %p, dist = %ld\n", r, l, dist);
 		/* rep movs-friendly loop */
-		for (i = dist + 1; i; ++i)
-			copy(def, &right_plus_one[i], &r[i]);
+		for (i = dist; i; --i) {
+//fprintf(stderr, "r = %p, l = %p, dist = %ld, i = %ld\n", r, l, dist, i);
+			def->copy(def, &l[i * def->size], &left_minus_one[i * def->size]);
+		}
 
-		copy(def, left, tmp);
+		def->copy(def, left, tmp);
 	} else {
-		//BUILD_BUG_ON_MSG(1, "large element sizes not yet implemented");
+		BUILD_BUG_ON_MSG(1, "large element sizes not yet implemented");
 
 		/* tmp_size < size, so we have to copy elements in chunks */
 		ssize_t i;		/* here, i is a negative byte index */
@@ -122,10 +134,10 @@ _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, 
 		 * - It is less efficient for smaller ranges
 		 * - It will perform poorly if either the element size is
 		 *   larger than the data cache or the CPU has no cache. */
-		for (i = (dist + 1) * def->size; i; i += def->size) {
+		for (i = (dist + 1) * def->size; i <= 0; i += def->size) {
 
 			/* FIXME: large tmp buffer wasted here */
-			swap(def, &r[i], &right_plus_one[i]);
+			swap(def, &r[i * def->size], &right_plus_one[i * def->size]);
 
 #if 0
 			size_t chunk_size = ((def->size - 1) % tmp_size) + 1;
@@ -191,7 +203,7 @@ typedef struct
       smaller partition.  This *guarantees* no more than log (total_elems)
       stack size is needed (actually O(1) in this case)!  */
 
-static __always_inline void
+static __always_inline __flatten void
 _quicksort_template (const struct qsort_def *def, void *const pbase, size_t total_elems, void *arg)
 {
   register char *base_ptr = (char *) pbase;
@@ -204,6 +216,10 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   void (* const ror) (const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size)
         = def->ror ? def->ror : _quicksort_ror;
 
+  assert(def->cmp);
+  assert(def->copy);
+  assert(swap);
+  assert(ror);
   assert_const(def->align + def->size);
   BUILD_BUG_ON_MSG(!def->cmp, "cmp function is required");
 
@@ -211,7 +227,7 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   assert_early(!(def->align &(def->align - 1)));
 
   /* size must be a multiple of align */
-  assert_early(!(def->align % def->size));
+  assert_early(!(def->size % def->align));
 
   /* verify pbase is really aligned as advertised */
   assert_early(!((uintptr_t)pbase & (def->align - 1)));
@@ -326,10 +342,11 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
 #define min(x, y) ((x) < (y) ? (x) : (y))
   {
     /* actually adds up to 63 more to this */
-    const size_t MAX_STACK_SIZE = sizeof(stack_node) * STACK_SIZE;
+    const size_t MAX_STACK_SIZE = 1024;//sizeof(stack_node) * STACK_SIZE;
     int tmp_on_heap = 0;
     size_t tmp_size = 0;
     void *tmp;
+//	int i;
 
     if (MAX_STACK_SIZE < size)
       {
@@ -353,12 +370,12 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
       }
 
     /* if element size is a power of two, indexed addressing will be more efficient in most cases */
-    if (!(def->size & (def->size - 1)))
+    if (0 && !(def->size & (def->size - 1)))
       {
         const size_t thresh = min (total_elems, MAX_THRESH + 1);
         size_t left, right;
-        size_t smallest;
-
+        void *smallest;
+BUILD_BUG();
 #ifdef ARCH_MAX_INDEX_MULT
         if (def->size > ARCH_MAX_INDEX_MULT)
           goto ptr_based;
@@ -367,28 +384,21 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
            array's beginning.  This is the smallest array element,
            and the operation speeds up insertion sort's inner loop. */
 
-        for (smallest = 0, right = 1; right < thresh; ++right)
-          if (def->cmp (&base_ptr[right * def->size], base_ptr, arg) < 0)
-            smallest = right;
-        if (smallest)
-          swap (def, &base_ptr[smallest * def->size], base_ptr);
+        for (smallest = base_ptr, right = 1; right < thresh; ++right)
+          if (def->cmp (smallest, &base_ptr[right * def->size], arg) > 0)
+            smallest = &base_ptr[right * def->size];
+        if (smallest != base_ptr)
+          swap (def, smallest, base_ptr);
 
-        for (right = 1; right < total_elems; ++right)
+        for (right = 2; right < total_elems; ++right)
           {
-            void *pr, *pl;
-            left = right;
-            do
-              {
+            left = right - 1;
+            while (def->cmp (&base_ptr[right * def->size], &base_ptr[left * def->size], arg) < 0)
                 --left;
-                pr = &base_ptr[right * def->size];
-                pl = &base_ptr[left  * def->size];
-                if (def->cmp (pr, pl, arg) >= 0)
-                  break;
-              }
-            while (left);
 
-            if (left)
-              _quicksort_ror(def, pl, pr, tmp, tmp_size);
+            ++left;
+            if (left != right)
+              ror(def, &base_ptr[left * def->size], &base_ptr[right * def->size], tmp, tmp_size);
           }
       }
     else
@@ -400,7 +410,7 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
         char *tmp_ptr = base_ptr;
         char *thresh = min(end_ptr, base_ptr + max_thresh);
         register char *run_ptr;
-
+//BUILD_BUG();
         /* Find smallest element in first threshold and place it at the
            array's beginning.  This is the smallest array element,
            and the operation speeds up insertion sort's inner loop. */
@@ -422,8 +432,9 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
               tmp_ptr -= size;
 
             tmp_ptr += size;
-            if (tmp_ptr != run_ptr)
+            if (tmp_ptr != run_ptr) {
               ror(def, tmp_ptr, run_ptr, tmp, tmp_size);
+            }
           }
       }
   }

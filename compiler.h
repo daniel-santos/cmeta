@@ -28,6 +28,10 @@
 # define __aligned(n)		__attribute__((aligned(n)))
 #endif
 
+#ifndef assume_aligned
+# define assume_aligned(p, ...) __builtin_assume_aligned(p, ## __VA_ARGS__)
+#endif
+
 #ifndef __always_inline
 # define __always_inline	inline __attribute__((always_inline))
 #endif

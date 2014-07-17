@@ -32,22 +32,33 @@
 #endif
 
 
-static void randomize(long *arr, size_t count, unsigned int seed) {
+static void randomize(void *p, size_t n, size_t size, unsigned int seed) {
 	const size_t LONG_BITS = sizeof(long) * 8;
-	const size_t RAND_BITS = LONG_BITS - __builtin_clz((long)RAND_MAX);
+	const size_t RAND_BITS = LONG_BITS - __builtin_clzl((size_t)RAND_MAX);
+	const size_t bytes = n * size;
+	const size_t count = bytes / sizeof(unsigned long);
+	unsigned long *arr = p;
 	size_t i;
+
+	assert(!(bytes % sizeof(*arr)));
 
 	srandom(seed);
 
 	for (i = 0; i < count; ++i) {
 		size_t bits;
 
-		arr[i] = random();
+		arr[i] = (unsigned long)random();
 
 		for (bits = RAND_BITS; bits < LONG_BITS; bits += RAND_BITS) {
 			arr[i] <<= RAND_BITS;
-			arr[i] ^= (long)random();
+			arr[i] ^= (unsigned long)random();
 		}
+		arr[i] >>= 56;
+	}
+
+	/* if not aligned to size of long get the last few bytes */
+	for (i = 0; i < bytes % sizeof(*arr); ++i) {
+		((char *)p) [count * sizeof(*arr) + i] = random();
 	}
 }
 
@@ -84,6 +95,13 @@ static inline struct timespec timespec_add(struct timespec a, struct timespec b)
 	}
 
 	return ret;
+}
+
+static double time_pct(struct timespec *a, struct timespec *b) {
+	const double ONE_BILLION = 1000000000.;
+	double da = (double)a->tv_nsec + ONE_BILLION *a->tv_sec;
+	double db = (double)b->tv_nsec + ONE_BILLION *b->tv_sec;
+	return ((da / db) - 1.) * 100.;
 }
 
 #endif /* _UTILS_H_ */
