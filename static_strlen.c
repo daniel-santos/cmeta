@@ -101,9 +101,9 @@ add_zero:
 }
 
 #if 0
-/* version not using macros for illustrative purposes */
+/* smaller version not using macros for illustrative purposes */
 static __always_inline size_t static_strlen(const char *s) {
-	size_t i = 4096;
+	size_t i = 512;
 
 	/* if non-const or const, but longer than 4096 bytes, use rt strlen */
 	if (!__builtin_constant_p(*s) || is_nonzero_const(s[i - 1]))
