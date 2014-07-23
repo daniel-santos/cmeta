@@ -34,7 +34,7 @@
 #include "utils.h"
 
 #ifndef ELEM_SIZE
-# define ELEM_SIZE 8
+# define ELEM_SIZE 2048
 #endif
 
 #ifndef ALIGN_SIZE
@@ -42,59 +42,92 @@
 #endif
 
 #ifndef NUM_ELEMS
-# define NUM_ELEMS 16
+# define NUM_ELEMS 1024
 #endif
 
 #ifndef TEST_COUNT
-# define TEST_COUNT 1
+# define TEST_COUNT 128
 #endif
+
+#ifndef KEY_SIGN
+# define KEY_SIGN uint
+#endif
+
+#define key_type(bits) KEY_SIGN ## bits ## _t
 
 static __always_inline int my_cmp(const void *a, const void *b, void *context) {
 	if (ELEM_SIZE == 1) {
-		const int8_t __aligned(ALIGN_SIZE) *_a = a;
-		const int8_t __aligned(ALIGN_SIZE) *_b = b;
+		const uint8_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint8_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
 		return *_a - *_b;
-	} else if (ELEM_SIZE < 4) {
-		const int16_t __aligned(ALIGN_SIZE) *_a = a;
-		const int16_t __aligned(ALIGN_SIZE) *_b = b;
+	} else if (ELEM_SIZE == 2) {
+		const uint16_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint16_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
 		return *_a - *_b;
 	} else if (ELEM_SIZE < 8) {
-		const int32_t __aligned(ALIGN_SIZE) *_a = a;
-		const int32_t __aligned(ALIGN_SIZE) *_b = b;
-		return *_a - *_b;
+		const uint32_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint32_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+		return *_a == *_b ? 0 : (*_a > *_b ? 1 : -1);
 	} else {
-		const int64_t __aligned(ALIGN_SIZE) *_a = a;
-		const int64_t __aligned(ALIGN_SIZE) *_b = b;
+		const uint64_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint64_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
 		return *_a == *_b ? 0 : (*_a > *_b ? 1 : -1);
 	}
 }
 
+static __always_inline int my_less(const void *a, const void *b, void *context) {
+	if (ELEM_SIZE == 1) {
+		const uint8_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint8_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+		return *_a < *_b;
+	} else if (ELEM_SIZE == 2) {
+		const uint16_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint16_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+		return *_a < *_b;
+	} else if (ELEM_SIZE < 8) {
+		const uint32_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint32_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+		return *_a < *_b;
+	} else {
+		const uint64_t *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+		const uint64_t *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+		return *_a < *_b;
+	}
+}
+
+/* packing isn't normally something one would do, but we need to force the
+ * specified object size, so we use pack(1) to get that */
+#pragma pack(push,1)
 struct size_type {
 	char c[ELEM_SIZE];
 };
+#pragma pack(pop)
 
 static __always_inline void my_copy(const struct qsort_def *def, void *dest, const void *src) {
-	const struct size_type __aligned(ALIGN_SIZE) *s = src;
-	struct size_type __aligned(ALIGN_SIZE) *d = dest;
+	//struct size_type *s = __builtin_assume_aligned(src, ALIGN_SIZE);
+	//struct size_type *d = __builtin_assume_aligned(dest, ALIGN_SIZE);
 //        fprintf(stderr, "copy: d=%p, s=%p\n", d, s);
-	*d = *s;
+	//*d = *s;
+	      //memcpy(d, s, ELEM_SIZE);
+	memcpy(dest, src, ELEM_SIZE);
 }
 
-static __always_inline __flatten void my_swap(const struct qsort_def *def, void *a, void *b) {
-	struct size_type __aligned(ALIGN_SIZE) tmp;
-	struct size_type __aligned(ALIGN_SIZE) *_a = a;
-	struct size_type __aligned(ALIGN_SIZE) *_b = b;
-	my_copy(def, &tmp, _a);
+static __always_inline __flatten void my_swap(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size) {
+	struct size_type *_t = __builtin_assume_aligned(tmp, ALIGN_SIZE);
+	struct size_type *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
+	struct size_type *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
+	my_copy(def, _t, _a);
 	my_copy(def, _a, _b);
-	my_copy(def, _b, &tmp);
+	my_copy(def, _b, _t);
 }
 
 static const struct qsort_def my_def = {
 	.size = ELEM_SIZE,
 	.align = ALIGN_SIZE,
-	.cmp = my_cmp,
-	.copy = my_copy,
-	.swap = my_swap,
+	//.cmp = my_cmp,
+	.less = my_less,
+	//.copy = my_copy,
+	//.swap = my_swap,
 };
 
 
@@ -105,48 +138,96 @@ static __noinline __flatten void my_quicksort(void *p, size_t n, size_t elem_siz
 	_quicksort_template(&my_def, p, NUM_ELEMS, NULL);
 }
 
-static void dump_longs(const void *data, size_t n, const char *heading) {
-	const long *p = data;
+static void dump_keys(void * const data[4], size_t n, const char *heading) {
 	size_t i;
 
 	fprintf(stderr, "\n%s:\n", heading);
-	for (i = 0; i < n; ++i)
-		fprintf(stderr, "0x%08lx 0x%016lx\n", i * sizeof(long), p[i]);
+	if (ELEM_SIZE == 1) {
+		const uint8_t **p = (const uint8_t **)data;
+
+		fprintf(stderr, "%-9s %-5s %-5s %-5s %-5s\n",
+				"offset", "orig", "mine", "qsort", "msort");
+		for (i = 0; i < n; ++i)
+			fprintf(stderr, "%08lx: %02hhx    %02hhx    %02hhx    %02hhx\n",
+				i * sizeof(**p),
+				p[0][i], p[1][i], p[2][i], p[3][i]);
+	} else if (ELEM_SIZE == 2) {
+		const uint16_t **p = (const uint16_t **)data;
+
+		fprintf(stderr, "%-9s %-5s %-5s %-5s %-5s\n",
+				"offset", "orig", "mine", "qsort", "msort");
+		for (i = 0; i < n; ++i)
+			fprintf(stderr, "%08lx: %04hx  %04hx  %04hx  %04hx\n",
+				i * sizeof(**p),
+				p[0][i], p[1][i], p[2][i], p[3][i]);
+	} else if (ELEM_SIZE == 4) {
+		const uint32_t **p = (const uint32_t **)data;
+
+		fprintf(stderr, "%-9s %-8s %-8s %-8s %-8s\n",
+				"offset", "orig", "mine", "qsort", "msort");
+		for (i = 0; i < n; ++i)
+			fprintf(stderr, "%08lx: %08x %08x %08x %08x\n",
+				i * sizeof(**p),
+				p[0][i], p[1][i], p[2][i], p[3][i]);
+	} else {
+		const uint64_t **p = (const uint64_t **)data;
+
+		fprintf(stderr, "%-9s %-16s %-16s %-16s %-16s\n",
+				"offset", "orig", "mine", "qsort", "msort");
+		for (i = 0; i < n; ++i)
+			fprintf(stderr, "%08lx: %016lx %016lx %016lx %016lx\n",
+				i * sizeof(**p),
+				p[0][i], p[1][i], p[2][i], p[3][i]);
+	}
 }
 
+/* Make sure that _quicksort_template() is correct given these parameters */
 void validate_sort(void *p, size_t n, size_t elem_size, size_t min_align, unsigned int seed) {
-	void *copy;
+	void *data[4];
+	const char *algo_desc[4] = {"orig", "my_quicksort", "_quicksoft", "qsort_r"};
 	size_t bytes = n * elem_size;
+	size_t i;
 
 	assert(!((uintptr_t)p & (min_align - 1)));
 	BUILD_BUG_ON(sizeof(struct size_type) != ELEM_SIZE);
 
-	copy = aligned_alloc(min_align, bytes);
-	assert(!((uintptr_t)copy & (min_align - 1)));
-
-	srandom(2);
-
-	randomize(p, n, elem_size, random());
-	memcpy(copy, p, bytes);
-
-	if (memcmp(p, copy, bytes)) {
-		fatal_error("something is screwy");
+	/* allocate 3 additional buffers */
+	for (i = 0; i < 4; ++i) {
+		if (i == 1) {
+			data[i] = p;
+		} else {
+			data[i] = aligned_alloc(min_align, bytes);
+			assert(!((uintptr_t)data[i] & (min_align - 1)));
+		}
 	}
 
-	dump_longs(p, n, "BEFORE");
+	/* randomize data[0] */
+	randomize(data[0], n, elem_size, seed);
 
-	my_quicksort(p, n, elem_size, my_cmp, NULL);
-	_quicksort(copy, n, elem_size, my_cmp, NULL);
-
-	if (memcmp(p, copy, bytes)) {
-		fprintf(stderr, "\nmy_quicksort output:");
-	dump_longs(p, n, "mine");
-	dump_longs(copy, n, "qsort_r");
-		fprintf(stderr, "\n");
-		fatal_error("\nmy_quicksort produced different result than qsort_r");
+	/* and copy to the other buffers */
+	for (i = 1; i < 4; ++i) {
+		memcpy(data[i], data[0], bytes);
+		assert(!memcmp(data[i], data[0], bytes));
 	}
 
-	free (copy);
+	if (0)
+		dump_keys(p, n, "BEFORE");
+
+	my_quicksort(data[1], n, elem_size, my_cmp, NULL);
+	_quicksort  (data[2], n, elem_size, my_cmp, NULL);
+	qsort_r     (data[3], n, elem_size, my_cmp, NULL);
+
+	for (i = 2; i < 4; ++i) {
+		if (memcmp(data[1], data[i], bytes)) {
+			dump_keys(data, n, "");
+			fprintf(stderr, "\n");
+			fatal_error("\nmy_quicksort produced different result than %s", algo_desc[i]);
+		}
+	}
+
+	free (data[0]);
+	free (data[2]);
+	free (data[3]);
 }
 
 static void print_result(struct timespec *total, const char *desc) {
@@ -191,6 +272,9 @@ int main(int argc, char **argv) {
 	void *arr;
 	struct timespec qsort, msort, mysort;
 
+	/* verify that we have forced the object to whatever size we've
+	 * specified, even if it's stupid */
+	BUILD_BUG_ON(sizeof(struct size_type) != ELEM_SIZE);
 
 	arr = aligned_alloc(ALIGN_SIZE, ELEM_SIZE * (size_t)NUM_ELEMS);
 	if (unlikely(!arr)) {
@@ -211,7 +295,7 @@ int main(int argc, char **argv) {
 		   (size_t)ELEM_SIZE * (size_t)NUM_ELEMS, (size_t)TEST_COUNT);
 
 	validate_sort(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0);
-exit(1);
+
 	qsort  = run_test(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0, TEST_COUNT, _quicksort, "_quicksort");
 	msort  = run_test(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0, TEST_COUNT, qsort_r, "qsort_r");
 	mysort = run_test(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0, TEST_COUNT, my_quicksort, "my_quicksort");
@@ -219,11 +303,14 @@ exit(1);
 	printf("%.2f%% faster than _quicksort\n", time_pct(&qsort, &mysort));
 	printf("%.2f%% faster than qsort_r\n", time_pct(&msort, &mysort));
 
-	printf("\n\nn, elem_size, min_align, total_bytes, repeat_count, cmp_to_qsort, cmp_to_msort\n");
-	printf("%lu, %lu, %lu, %lu, %lu, %.2f%%, %.2f%%\n",
+	printf("\n\nn, elem_size, min_align, total_bytes, repeat_count, cmp_to_qsort, cmp_to_msort, time_qsort, time_msort, time_mysort\n");
+	printf("%lu, %lu, %lu, %lu, %lu, %.2f%%, %.2f%%, %lu.%09lu, %lu.%09lu, %lu.%09lu\n",
 		   (size_t)NUM_ELEMS, (size_t)ELEM_SIZE, (size_t)ALIGN_SIZE,
 		   (size_t)ELEM_SIZE * (size_t)NUM_ELEMS, (size_t)TEST_COUNT,
-		   time_pct(&qsort, &mysort), time_pct(&msort, &mysort));
+		   time_pct(&qsort, &mysort), time_pct(&msort, &mysort),
+		   qsort.tv_sec, qsort.tv_nsec,
+		   msort.tv_sec, msort.tv_nsec,
+		   mysort.tv_sec, mysort.tv_nsec);
 
 	free (arr);
 	return 0;

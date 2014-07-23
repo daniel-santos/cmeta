@@ -36,10 +36,9 @@ build() {
 }
 
 run_tests() {
-	for total_size in 16384 32768 65536 262144 1048576; do # 4194304; do
+	for total_size in 16384 32768 65536 262144 1048576 4194304; do
 		echo "total_size = ${total_size}"
-		#for size in 1 2 4 8 16 24 32 36 40 48 64 128 256 512 1024; do
-		for size in 4; do
+		for size in 1 2 4 8 16 24 32 36 40 48 64 128 256 512 1024 2048 4096 8192; do
 			echo "size = ${size}"
 			for align in 1 2 4 8 16 32; do
 				typeset -i num_elems
@@ -47,13 +46,24 @@ run_tests() {
 				echo "align = ${align}"
 				# skip alignments that won't work
 				((size < align)) && continue;
-				((size % align )) && continue;
+				((size % align)) && continue;
 
 				num_elems=$((total_size / size))
-				((num_elems < 128)) && num_elems=128
+				#num_elems=8
+
 				((total_size <= 16384)) && test_count=$((test_count * 4))
 				((total_size <= 32768)) && test_count=$((test_count * 2))
 				((total_size <= 65536)) && test_count=$((test_count * 2))
+
+				# small elements are slower (per total data)
+				((size == 1)) && test_count=$((test_count / 4))
+				((size == 2)) && test_count=$((test_count / 2))
+				((size > 16)) && test_count=$((test_count * 2))
+				((size > 64)) && test_count=$((test_count * 2))
+				((size > 128)) && test_count=$((test_count * 2))
+				((size > 256)) && test_count=$((test_count * 2))
+				#((size > 1024)) && test_count=$((test_count / 2))
+				((size > 2048)) && test_count=$((test_count / 2))
 
 				CPPFLAGS="-DELEM_SIZE=${size} -DALIGN_SIZE=${align} -DNUM_ELEMS=${num_elems} -DTEST_COUNT=${test_count}"
 				echo "CPPFLAGS=${CPPFLAGS}"
@@ -69,7 +79,7 @@ run_tests() {
 }
 
 mkdir -p build/CMakeFiles/qsort_test.dir
-rm out.log
+rm build/out.log
 pushd build || die
 run_tests 2>&1 | tee -a out.log
 popd

@@ -175,4 +175,10 @@ aligned_ptr(void *p, size_t align) {
 	//return (void*)((uintptr_t)p & (~((uintptr_t)0) & (align - 1)));
 }
 
+#define aligned_alloca(n, align) (void *)				\
+	({								\
+		const size_t a = align - 1;				\
+		return (void *) (((uintptr_t)alloca((n) + a) + a) & ~a);\
+	})
+
 #endif /* _COMPILER_H_ */

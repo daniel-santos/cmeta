@@ -51,23 +51,94 @@ extern void _quicksort (void *const pbase, size_t total_elems, size_t size,
 struct qsort_def {
 	size_t size;
 	size_t align;
-	int (*cmp)(const void *a, const void *b, void *context);
-	void (*copy)(const struct qsort_def *def, void *dest, const void *src);
-	void (*swap)(const struct qsort_def *def, void *a, void *b);
+	//int (*cmp)(const void *a, const void *b, void *context);
+	int (*less)(const void *a, const void *b, void *context);
+	//int (*equal)(const void *a, const void *b, void *context);
+
+	//void (*copy)(const struct qsort_def *def, void *dest, const void *src);
+	//void (*swap)(const struct qsort_def *def, void *a, void *b);
 	//void (*swap)(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size);
-	void (*ror) (const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size);
+	//void (*ror) (const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size);
 };
+
+#if 0
+/* attempt to write a good memcpy in C.... uhh, maybe later */
+static __always_inline void
+_quicksort_copy(const struct qsort_def *def, void *dest, const void *src) {
+	const size_t size = def->size;
+	const size_t align = def->align;
+	size_t fast_size;
+	size_t off = 0;
+
+	/* for the given size, figure out what the optimal number of bytes to copy
+	 * aligned would be on this platform */
+	if (size == 1) {
+		fast_size = sizeof(__UINT_FAST8_TYPE__);
+	} else if (size < 4) {
+		fast_size = sizeof(__UINT_FAST16_TYPE__);
+	} else if (size < 8) {
+		fast_size = sizeof(__UINT_FAST32_TYPE__);
+	} else if (size < _Alignof(max_align_t)) {
+#ifdef __UINT_LEAST64_TYPE__
+		fast_size = sizeof(__UINT_FAST64_TYPE__);
+#else
+		fast_size = sizeof(__UINT_FAST32_TYPE__);
+#endif
+	} else {
+		fast_size = _Alignof(max_align_t);
+	}
+
+	/* if alignment is smaller than fast_size, we'll slow copy until aligned to
+	 * fast_size */
+	if (align < fast_size) {
+		/* copy and then set off to where to start aligned copy */
+	}
+
+	/* do fast copy */
+
+	/* if there's any unaligned at the end, copy that */
+}
+#endif
+
+#define _ALIGNED_COPY(def, dest, src, align)				\
+	do {								\
+		void       *d = __builtin_assume_aligned(dest, align);	\
+		const void *s = __builtin_assume_aligned(src, align);	\
+		__builtin_memcpy(d, s, def->size);			\
+		return;                                 		\
+	} while (0)
+
+#define min(x, y) ((x) < (y) ? (x) : (y))
 
 static __always_inline void
 _quicksort_copy(const struct qsort_def *def, void *dest, const void *src) {
-	assert(0);
-	BUILD_BUG_ON_MSG(1, "not implemented");
+	/* control the size of align */
+	const size_t align = min(def->align, _Alignof(max_align_t));
+
+        assert_const(align);
+//BUILD_BUG_ON_MSG(1, "not implemented");
+//assert(0);
+	switch (align) {
+	case 1:   _ALIGNED_COPY(def, dest, src, 1);
+	case 2:   _ALIGNED_COPY(def, dest, src, 2);
+	case 4:   _ALIGNED_COPY(def, dest, src, 4);
+	case 8:   _ALIGNED_COPY(def, dest, src, 8);
+	case 16:  _ALIGNED_COPY(def, dest, src, 16);
+	case 32:  _ALIGNED_COPY(def, dest, src, 32);
+	case 64:  _ALIGNED_COPY(def, dest, src, 64);
+	case 128: _ALIGNED_COPY(def, dest, src, 128);
+	case 256: _ALIGNED_COPY(def, dest, src, 256);
+	default:  BUILD_BUG();
+	}
 }
 
 static __always_inline void
-_quicksort_swap(const struct qsort_def *def, void *a, void *b) {
-	assert(0);
-	BUILD_BUG_ON_MSG(1, "not implemented");
+_quicksort_swap(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size) {
+	_quicksort_copy(def, tmp, a);
+	_quicksort_copy(def, a, b);
+	_quicksort_copy(def, b, tmp);
+//BUILD_BUG_ON_MSG(1, "not implemented");
+//assert(0);
 }
 
 /*
@@ -81,21 +152,26 @@ _quicksort_swap(const struct qsort_def *def, void *a, void *b) {
  */
 static __always_inline __flatten void
 _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size) {
-        const size_t size = def->size;
+        const ssize_t size = (ssize_t)def->size;
 	char *r = right;
 	char *l = left;
 	const ssize_t dist = (r - l) / (ssize_t)def->size; /* left to right offset */
 
+#if 0
 	assert_const(!def->copy);
 	assert_const(!def->swap);
 	BUILD_BUG_ON(!def->copy);
 	BUILD_BUG_ON(!def->swap);
-#if 0
+
+
 	void (* const copy)(const struct qsort_def *def, void *dest, const void *src)
-		= !!(def->copy) ? def->copy : _quicksort_copy;
-	void (* const swap)(const struct qsort_def *def, void *a, void *b)
-		= !!(def->swap) ? def->swap : _quicksort_swap;
+		=  !!(def->copy) ? def->copy : _quicksort_copy;
+	void (* const swap)(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size)
+		=  !!(def->swap) ? def->swap : _quicksort_swap;
 #endif
+	//left = __builtin_assume_aligned(left, def->align);
+	//left = __builtin_assume_aligned(left, ((uintptr_t)left >> 5) & 15);
+
 
 	/* validate pointer alignment */
 	assert_early(!((uintptr_t)l & (def->align - 1)));
@@ -105,24 +181,24 @@ _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, 
         assert(dist != 0);
         assert(dist > 0);
 
-	if (size <= tmp_size) {
+	if (size <= (ssize_t)tmp_size) {
 		ssize_t i;
 		char *left_minus_one = l - size;
 
-		def->copy(def, tmp, r);
+		_quicksort_copy(def, tmp, r);
 		/* rep movs-friendly loop */
-		for (i = dist; i; --i) {
-			def->copy(def, &l[i * size], &left_minus_one[i * size]);
-		}
+		for (i = dist; i; --i)
+			_quicksort_copy(def, &l[i * size], &left_minus_one[i * size]);
 
-		def->copy(def, left, tmp);
+		_quicksort_copy(def, left, tmp);
 	} else {
-		BUILD_BUG_ON_MSG(1, "large element sizes not yet implemented");
 
 		/* tmp_size < size, so we have to copy elements in chunks */
 		ssize_t i;		/* here, i is a negative byte index */
 		//ssize_t off;		/* chunk offset */
 		char *right_plus_one = r + size;
+
+		//BUILD_BUG_ON_MSG(1, "large element sizes not yet implemented");
 
 		/* This algo iteratively moves the leftmost element right and
 		 * is designed to not thrash the cache when the range between
@@ -132,12 +208,12 @@ _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, 
 		 * - It is less efficient for smaller ranges
 		 * - It will perform poorly if either the element size is
 		 *   larger than the data cache or the CPU has no cache. */
-		for (i = (dist + 1) * size; i <= 0; i += size) {
 
-			/* FIXME: large tmp buffer wasted here */
-			def->swap(def, &r[i * size], &right_plus_one[i * size]);
+		for (i = -(dist - 1) * size; i <= 0; i += size)
+			_quicksort_swap(def, &r[i * size], &right_plus_one[i * size], tmp, tmp_size);
 
 #if 0
+		for (i = -(dist - 1) * size; i <= 0; i += size) {
 			size_t chunk_size = ((size - 1) % tmp_size) + 1;
 
 			for (off = size - chunk_size; off < size; off -= tmp_size) {
@@ -150,8 +226,8 @@ _quicksort_ror(const struct qsort_def *def, void *left, void *right, void *tmp, 
 
 				chunk_size = tmp_size;
 			}
-#endif
 		}
+#endif
 	}
 }
 
@@ -207,19 +283,28 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   register char *base_ptr = (char *) pbase;
   const size_t max_thresh = MAX_THRESH * def->size;
   const size_t size       = def->size;
-  const size_t align      = def->align;
-
-  void (* const swap)(const struct qsort_def *def, void *a, void *b)
-        = def->swap ? def->swap : _quicksort_swap;
+//  const size_t align      = def->align;
+  const size_t align      = min(def->align, _Alignof(max_align_t));
+#if 0
+  void (* const swap)(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size)
+        = !!(def->swap) ? def->swap : _quicksort_swap;
   void (* const ror) (const struct qsort_def *def, void *left, void *right, void *tmp, size_t tmp_size)
-        = def->ror ? def->ror : _quicksort_ror;
+        = /* def->ror ? def->ror : */ _quicksort_ror;
+#endif
+  /* actually adds up to (align - q) more to this */
+  const size_t MAX_STACK_SIZE = 256;
+  int tmp_on_heap = 0;
+  size_t tmp_size = 0;
+  void *tmp;
 
-  assert(def->cmp);
+  assert(def->less);
+#if 0
   assert(def->copy);
   assert(swap);
   assert(ror);
+#endif
   assert_const(def->align + def->size);
-  BUILD_BUG_ON_MSG(!def->cmp, "cmp function is required");
+  BUILD_BUG_ON_MSG(!def->less, "less function is required");
 
   /* align must be a power of two */
   assert_early(!(def->align &(def->align - 1)));
@@ -233,6 +318,29 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   if (total_elems == 0)
     /* Avoid lossage with unsigned arithmetic below.  */
     return;
+
+  if (MAX_STACK_SIZE < size)
+    {
+      tmp_size = size;
+      tmp = aligned_alloc(align, size);
+      if (tmp)
+        tmp_on_heap = 1;
+    }
+
+  if (!tmp_on_heap)
+    {
+      size_t offset;
+      /* put it on the stack */
+      tmp_size = min(size, MAX_STACK_SIZE);
+      tmp = alloca (tmp_size + align - 1);
+
+      /* align it */
+      offset = (uintptr_t)tmp % align;
+      if (offset)
+        tmp += align - offset;
+    }
+
+
 
   if (total_elems > MAX_THRESH)
     {
@@ -256,14 +364,14 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
 
           char *mid = lo + size * ((hi - lo) / size >> 1);
 
-          if ((*def->cmp) ((void *) mid, (void *) lo, arg) < 0)
-            swap (def, mid, lo);
-          if ((*def->cmp) ((void *) hi, (void *) mid, arg) < 0)
-            swap (def, mid, hi);
+          if ((*def->less) ((void *) mid, (void *) lo, arg))
+            _quicksort_swap (def, mid, lo, tmp, tmp_size);
+          if ((*def->less) ((void *) hi, (void *) mid, arg))
+            _quicksort_swap (def, mid, hi, tmp, tmp_size);
           else
             goto jump_over;
-          if ((*def->cmp) ((void *) mid, (void *) lo, arg) < 0)
-            swap (def, mid, lo);
+          if ((*def->less) ((void *) mid, (void *) lo, arg))
+            _quicksort_swap (def, mid, lo, tmp, tmp_size);
         jump_over:;
 
           left_ptr  = lo + size;
@@ -274,15 +382,15 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
              that this algorithm runs much faster than others. */
           do
             {
-              while ((*def->cmp) ((void *) left_ptr, (void *) mid, arg) < 0)
+              while ((*def->less) ((void *) left_ptr, (void *) mid, arg))
                 left_ptr += size;
 
-              while ((*def->cmp) ((void *) mid, (void *) right_ptr, arg) < 0)
+              while ((*def->less) ((void *) mid, (void *) right_ptr, arg))
                 right_ptr -= size;
 
               if (left_ptr < right_ptr)
                 {
-                  swap (def, left_ptr, right_ptr);
+                  _quicksort_swap (def, left_ptr, right_ptr, tmp, tmp_size);
                   if (mid == left_ptr)
                     mid = right_ptr;
                   else if (mid == right_ptr)
@@ -337,105 +445,77 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
      of the array to sort, and END_PTR points at the very last element in
      the array (*not* one beyond it!). */
 
-#define min(x, y) ((x) < (y) ? (x) : (y))
-  {
-    /* actually adds up to 63 more to this */
-    const size_t MAX_STACK_SIZE = 1024;//sizeof(stack_node) * STACK_SIZE;
-    int tmp_on_heap = 0;
-    size_t tmp_size = 0;
-    void *tmp;
-//	int i;
 
-    if (MAX_STACK_SIZE < size)
-      {
-        tmp_size = size;
-        tmp = aligned_alloc(align, size);
-        if (tmp)
-          tmp_on_heap = 1;
-      }
-
-    if (!tmp_on_heap)
-      {
-        size_t offset;
-        /* put it on the stack */
-        tmp_size = min(size, MAX_STACK_SIZE);
-        tmp = alloca (tmp_size + align - 1);
-
-        /* align it */
-        offset = (uintptr_t)tmp % align;
-        if (offset)
-          tmp += align - offset;
-      }
-
-    /* if element size is a power of two, indexed addressing will be more efficient in most cases */
-    if (        !(def->size & (def->size - 1)))
-      {
-        const size_t thresh = min (total_elems, MAX_THRESH + 1);
-        size_t left, right;
-        void *smallest;
-//BUILD_BUG();
+  /* if element size is a power of two, indexed addressing will be more efficient in most cases */
+  if (!(def->size & (def->size - 1)))
+    {
+      const size_t thresh = min (total_elems, MAX_THRESH + 1);
+      size_t left, right;
+      void *smallest;
+//      BUILD_BUG();
 #ifdef ARCH_MAX_INDEX_MULT
-        if (def->size > ARCH_MAX_INDEX_MULT)
-          goto ptr_based;
+      if (def->size > ARCH_MAX_INDEX_MULT)
+        goto ptr_based;
 #endif
-        /* Find smallest element in first threshold and place it at the
-           array's beginning.  This is the smallest array element,
-           and the operation speeds up insertion sort's inner loop. */
+      /* Find smallest element in first threshold and place it at the
+          array's beginning.  This is the smallest array element,
+          and the operation speeds up insertion sort's inner loop. */
 
-        for (smallest = base_ptr, right = 1; right < thresh; ++right)
-          if (def->cmp (smallest, &base_ptr[right * def->size], arg) > 0)
-            smallest = &base_ptr[right * def->size];
-        if (smallest != base_ptr)
-          swap (def, smallest, base_ptr);
+      for (smallest = base_ptr, right = 1; right < thresh; ++right)
+        if (def->less (&base_ptr[right * def->size], smallest, arg))
+          smallest = &base_ptr[right * def->size];
+      if (smallest != base_ptr)
+        _quicksort_swap (def, smallest, base_ptr, tmp, tmp_size);
+//__asm("int $3");
+      for (right = 2; right < total_elems; ++right)
+        {
+          left = right - 1;
+          while (def->less (&base_ptr[right * def->size], &base_ptr[left * def->size], arg))
+            --left;
 
-        for (right = 2; right < total_elems; ++right)
-          {
-            left = right - 1;
-            while (def->cmp (&base_ptr[right * def->size], &base_ptr[left * def->size], arg) < 0)
-                --left;
+          ++left;
+          if (left != right)
+            _quicksort_ror(def, &base_ptr[left * def->size], &base_ptr[right * def->size], tmp, tmp_size);
+        }
+    }
+  else
+    {
 
-            ++left;
-            if (left != right)
-              ror(def, &base_ptr[left * def->size], &base_ptr[right * def->size], tmp, tmp_size);
-          }
-      }
-    else
-      {
+      /* if not a power of two, use ptr arithmetic */
+      const size_t size = def->size;
+      char *const end_ptr = &base_ptr[size * (total_elems - 1)];
+      char *tmp_ptr = base_ptr;
+      char *thresh = min(end_ptr, base_ptr + max_thresh);
+      register char *run_ptr;
 
-        /* if not a power of two, use ptr arithmetic */
-        const size_t size = def->size;
-        char *const end_ptr = &base_ptr[size * (total_elems - 1)];
-        char *tmp_ptr = base_ptr;
-        char *thresh = min(end_ptr, base_ptr + max_thresh);
-        register char *run_ptr;
-//BUILD_BUG();
-        /* Find smallest element in first threshold and place it at the
-           array's beginning.  This is the smallest array element,
-           and the operation speeds up insertion sort's inner loop. */
+      /* Find smallest element in first threshold and place it at the
+          array's beginning.  This is the smallest array element,
+          and the operation speeds up insertion sort's inner loop. */
 
-        for (run_ptr = tmp_ptr + size; run_ptr <= thresh; run_ptr += size)
-          if ((*def->cmp) ((void *) run_ptr, (void *) tmp_ptr, arg) < 0)
-            tmp_ptr = run_ptr;
+      for (run_ptr = tmp_ptr + size; run_ptr <= thresh; run_ptr += size)
+        if ((*def->less) ((void *) run_ptr, (void *) tmp_ptr, arg))
+          tmp_ptr = run_ptr;
 
-        if (tmp_ptr != base_ptr)
-          swap (def, tmp_ptr, base_ptr);
+      if (tmp_ptr != base_ptr)
+        _quicksort_swap (def, tmp_ptr, base_ptr, tmp, tmp_size);
 
-        /* Insertion sort, running from left-hand-side up to right-hand-side.  */
+      /* Insertion sort, running from left-hand-side up to right-hand-side.  */
 
-        run_ptr = base_ptr + size;
-        while ((run_ptr += size) <= end_ptr)
-          {
-            tmp_ptr = run_ptr - size;
-            while ((*def->cmp) ((void *) run_ptr, (void *) tmp_ptr, arg) < 0)
-              tmp_ptr -= size;
+      run_ptr = base_ptr + size;
+      while ((run_ptr += size) <= end_ptr)
+        {
+          tmp_ptr = run_ptr - size;
+          while ((*def->less) ((void *) run_ptr, (void *) tmp_ptr, arg))
+            tmp_ptr -= size;
 
-            tmp_ptr += size;
-            if (tmp_ptr != run_ptr) {
-              ror(def, tmp_ptr, run_ptr, tmp, tmp_size);
-            }
-          }
-      }
-  }
+          tmp_ptr += size;
+          if (tmp_ptr != run_ptr)
+              _quicksort_ror(def, tmp_ptr, run_ptr, tmp, tmp_size);
+        }
+    }
+
+  if (tmp_on_heap)
+	  free (tmp);
 }
 
 #endif /* _QSORT_H_ */

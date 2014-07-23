@@ -6,6 +6,10 @@
 #define _UTILS_H_
 
 #include <error.h>
+#include <errno.h>
+#include <assert.h>
+
+#include "compiler.h"
 
 #if 0
 #include <stdlib.h>
@@ -33,14 +37,15 @@
 
 
 static void randomize(void *p, size_t n, size_t size, unsigned int seed) {
-	const size_t LONG_BITS = sizeof(long) * 8;
-	const size_t RAND_BITS = LONG_BITS - __builtin_clzl((size_t)RAND_MAX);
+	unsigned long *arr = p;
+	const size_t LONG_BITS = sizeof(unsigned long) * 8;
+	const size_t RAND_BITS = LONG_BITS - __builtin_clzl((unsigned long)RAND_MAX);
 	const size_t bytes = n * size;
 	const size_t count = bytes / sizeof(unsigned long);
-	unsigned long *arr = p;
 	size_t i;
 
-	assert(!(bytes % sizeof(*arr)));
+	//assert(!(bytes % sizeof(*arr)));
+	//assert(size == sizeof(*arr));
 
 	srandom(seed);
 
@@ -53,7 +58,7 @@ static void randomize(void *p, size_t n, size_t size, unsigned int seed) {
 			arr[i] <<= RAND_BITS;
 			arr[i] ^= (unsigned long)random();
 		}
-		arr[i] >>= 56;
+//		arr[i] >>= 56;
 	}
 
 	/* if not aligned to size of long get the last few bytes */
