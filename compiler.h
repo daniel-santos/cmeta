@@ -21,9 +21,18 @@
 #ifndef _COMPILER_H_
 #define _COMPILER_H_
 
+#include <sys/types.h>
 #include <inttypes.h>
 
 /* a few helpful gcc-extension macros */
+#ifndef likely
+# define likely(x)              __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+# define unlikely(x)            __builtin_expect(!!(x), 0)
+#endif
+
 #ifndef __aligned
 # define __aligned(n)		__attribute__((aligned(n)))
 #endif

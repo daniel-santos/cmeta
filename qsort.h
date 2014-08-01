@@ -283,8 +283,14 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   register char *base_ptr = (char *) pbase;
   const size_t max_thresh = MAX_THRESH * def->size;
   const size_t size       = def->size;
-//  const size_t align      = def->align;
-  const size_t align      = min(def->align, _Alignof(max_align_t));
+
+#if __STDC_VERSION__ >= 201112L
+                            /* restrict to meaningful value */
+  const size_t align      = min (def->align, _Alignof(max_align_t));
+#else
+  const size_t align      = min (def->align, 256);
+#endif
+
 #if 0
   void (* const swap)(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size)
         = !!(def->swap) ? def->swap : _quicksort_swap;
@@ -297,20 +303,24 @@ _quicksort_template (const struct qsort_def *def, void *const pbase, size_t tota
   size_t tmp_size = 0;
   void *tmp;
 
-  assert(def->less);
+  assert_const(!!(def->less));
+
 #if 0
   assert(def->copy);
   assert(swap);
   assert(ror);
 #endif
+
   assert_const(def->align + def->size);
   BUILD_BUG_ON_MSG(!def->less, "less function is required");
-
-  /* align must be a power of two */
-  assert_early(!(def->align &(def->align - 1)));
+#if __STDC_VERSION__ >= 201112L
+  BUILD_BUG_ON_MSG(_Alignof(max_align_t) & (_Alignof(max_align_t) - 1),
+                   "_Alignof(max_align_t) is not a power of two");
+#endif
+  BUILD_BUG_ON_MSG(align & (align - 1), "align must be a power of two");
 
   /* size must be a multiple of align */
-  assert_early(!(def->size % def->align));
+  BUILD_BUG_ON(def->size % def->align);
 
   /* verify pbase is really aligned as advertised */
   assert_early(!((uintptr_t)pbase & (def->align - 1)));

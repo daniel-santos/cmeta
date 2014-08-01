@@ -27,15 +27,6 @@
 #define fatal_error(fmt, ...)						\
 	_do_error(1, errno, __FILE__, __LINE__, fmt, ## __VA_ARGS__)
 
-#ifndef likely
-# define likely(x)		__builtin_expect(!!(x), 1)
-#endif
-
-#ifndef unlikely
-# define unlikely(x)		__builtin_expect(!!(x), 0)
-#endif
-
-
 static void randomize(void *p, size_t n, size_t size, unsigned int seed) {
 	unsigned long *arr = p;
 	const size_t LONG_BITS = sizeof(unsigned long) * 8;

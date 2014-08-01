@@ -16,7 +16,8 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
-//#define  _ISOC11_SOURCE
+
+#define  _ISOC11_SOURCE
 #define _GNU_SOURCE
 
 #include <stdalign.h>
@@ -103,31 +104,10 @@ struct size_type {
 };
 #pragma pack(pop)
 
-static __always_inline void my_copy(const struct qsort_def *def, void *dest, const void *src) {
-	//struct size_type *s = __builtin_assume_aligned(src, ALIGN_SIZE);
-	//struct size_type *d = __builtin_assume_aligned(dest, ALIGN_SIZE);
-//        fprintf(stderr, "copy: d=%p, s=%p\n", d, s);
-	//*d = *s;
-	      //memcpy(d, s, ELEM_SIZE);
-	memcpy(dest, src, ELEM_SIZE);
-}
-
-static __always_inline __flatten void my_swap(const struct qsort_def *def, void *a, void *b, void *tmp, size_t tmp_size) {
-	struct size_type *_t = __builtin_assume_aligned(tmp, ALIGN_SIZE);
-	struct size_type *_a = __builtin_assume_aligned(a, ALIGN_SIZE);
-	struct size_type *_b = __builtin_assume_aligned(b, ALIGN_SIZE);
-	my_copy(def, _t, _a);
-	my_copy(def, _a, _b);
-	my_copy(def, _b, _t);
-}
-
 static const struct qsort_def my_def = {
 	.size = ELEM_SIZE,
 	.align = ALIGN_SIZE,
-	//.cmp = my_cmp,
 	.less = my_less,
-	//.copy = my_copy,
-	//.swap = my_swap,
 };
 
 
@@ -182,42 +162,40 @@ static void dump_keys(void * const data[4], size_t n, const char *heading) {
 }
 
 /* Make sure that _quicksort_template() is correct given these parameters */
-void validate_sort(void *p, size_t n, size_t elem_size, size_t min_align, unsigned int seed) {
+void validate_sort(size_t n, size_t elem_size, size_t min_align, unsigned int seed) {
 	void *data[4];
 	const char *algo_desc[4] = {"orig", "my_quicksort", "_quicksoft", "qsort_r"};
+	const size_t DATA_SIZE = sizeof(data) / sizeof(*data);
 	size_t bytes = n * elem_size;
 	size_t i;
 
 	assert(!((uintptr_t)p & (min_align - 1)));
 	BUILD_BUG_ON(sizeof(struct size_type) != ELEM_SIZE);
 
-	/* allocate 3 additional buffers */
-	for (i = 0; i < 4; ++i) {
-		if (i == 1) {
-			data[i] = p;
-		} else {
-			data[i] = aligned_alloc(min_align, bytes);
-			assert(!((uintptr_t)data[i] & (min_align - 1)));
-		}
+	/* allocate buffers */
+	for (i = 0; i < DATA_SIZE; ++i) {
+		data[i] = aligned_alloc(min_align, bytes);
+		assert(!((uintptr_t)data[i] & (min_align - 1)));
 	}
 
-	/* randomize data[0] */
+	/* randomize first buffer */
 	randomize(data[0], n, elem_size, seed);
 
 	/* and copy to the other buffers */
-	for (i = 1; i < 4; ++i) {
+	for (i = 1; i < DATA_SIZE; ++i) {
 		memcpy(data[i], data[0], bytes);
 		assert(!memcmp(data[i], data[0], bytes));
 	}
 
 	if (0)
-		dump_keys(p, n, "BEFORE");
+		dump_keys(data[0], n, "BEFORE");
 
 	my_quicksort(data[1], n, elem_size, my_cmp, NULL);
 	_quicksort  (data[2], n, elem_size, my_cmp, NULL);
 	qsort_r     (data[3], n, elem_size, my_cmp, NULL);
 
-	for (i = 2; i < 4; ++i) {
+	/* compare result of my_quicksort against results of other algos */
+	for (i = 2; i < DATA_SIZE - 1; ++i) {
 		if (memcmp(data[1], data[i], bytes)) {
 			dump_keys(data, n, "");
 			fprintf(stderr, "\n");
@@ -225,9 +203,8 @@ void validate_sort(void *p, size_t n, size_t elem_size, size_t min_align, unsign
 		}
 	}
 
-	free (data[0]);
-	free (data[2]);
-	free (data[3]);
+	for (i = 1; i < DATA_SIZE; ++i)
+		free (data[i]);
 }
 
 static void print_result(struct timespec *total, const char *desc) {
@@ -276,12 +253,6 @@ int main(int argc, char **argv) {
 	 * specified, even if it's stupid */
 	BUILD_BUG_ON(sizeof(struct size_type) != ELEM_SIZE);
 
-	arr = aligned_alloc(ALIGN_SIZE, ELEM_SIZE * (size_t)NUM_ELEMS);
-	if (unlikely(!arr)) {
-		errno = ENOMEM;
-		fatal_error("malloc %lu bytes\n", ELEM_SIZE * (size_t)NUM_ELEMS);
-	}
-
 //	fprintf(stderr, "%lu %lu %ld", sizeof(max_align_t), _Alignof(long), __STDC_VERSION__);//, sizeof(max_align_t));
 //	exit(1);
 
@@ -294,7 +265,13 @@ int main(int argc, char **argv) {
 		   (size_t)NUM_ELEMS, (size_t)ELEM_SIZE, (size_t)ALIGN_SIZE,
 		   (size_t)ELEM_SIZE * (size_t)NUM_ELEMS, (size_t)TEST_COUNT);
 
-	validate_sort(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0);
+	validate_sort(NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0);
+
+	arr = aligned_alloc(ALIGN_SIZE, ELEM_SIZE * (size_t)NUM_ELEMS);
+	if (unlikely(!arr)) {
+		errno = ENOMEM;
+		fatal_error("malloc %lu bytes\n", ELEM_SIZE * (size_t)NUM_ELEMS);
+	}
 
 	qsort  = run_test(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0, TEST_COUNT, _quicksort, "_quicksort");
 	msort  = run_test(arr, NUM_ELEMS, ELEM_SIZE, ALIGN_SIZE, 0, TEST_COUNT, qsort_r, "qsort_r");
