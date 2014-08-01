@@ -115,7 +115,7 @@ typedef void (*sort_func_t)(void *p, size_t n, size_t size, int (*compar)(const 
 
 /* using static noinline to make it easier to examine generated code */
 static __noinline __flatten void my_quicksort(void *p, size_t n, size_t elem_size, int (*compar)(const void *, const void *, void *arg), void *arg) {
-	_quicksort_template(&my_def, p, n, NULL);
+	_quicksort_template(&my_def, p, n, my_cmp, NULL);
 }
 
 static void dump_keys(void * const data[4], size_t n, const char *heading) {
