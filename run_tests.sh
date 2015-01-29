@@ -39,17 +39,24 @@ run_tests() {
 	for total_size in 16384 32768 65536 262144 1048576 4194304; do
 		echo "total_size = ${total_size}"
 		for size in 1 2 4 8 16 24 32 36 40 48 64 128 256 512 1024 2048 4096 8192; do
+			typeset -i num_elems
 			echo "size = ${size}"
+
+			num_elems=$((total_size / size))
+
+			# If less than 16 elements, then skip the test
+			if ((num_elems < 16)); then
+				continue;
+			fi
+			#num_elems=8
+
 			for align in 1 2 4 8 16 32; do
-				typeset -i num_elems
 				typeset -i test_count=512
 				echo "align = ${align}"
 				# skip alignments that won't work
 				((size < align)) && continue;
 				((size % align)) && continue;
 
-				num_elems=$((total_size / size))
-				#num_elems=8
 
 				((total_size <= 16384)) && test_count=$((test_count * 4))
 				((total_size <= 32768)) && test_count=$((test_count * 2))
@@ -67,7 +74,7 @@ run_tests() {
 
 				CPPFLAGS="-DELEM_SIZE=${size} -DALIGN_SIZE=${align} -DNUM_ELEMS=${num_elems} -DTEST_COUNT=${test_count}"
 				echo "CPPFLAGS=${CPPFLAGS}"
-				#echo "TEST: elem_size=${size}, align=${align}, num_elems=${num_elems}, test_count=${test_count}, total_size=${total_size}"
+				echo "TEST: elem_size=${size}, align=${align}, num_elems=${num_elems}, test_count=${test_count}, total_size=${total_size}"
 				CPPFLAGS="${CPPFLAGS=}" build || die
 
 				set -x
