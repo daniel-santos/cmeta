@@ -35,19 +35,19 @@
 #include "utils.h"
 
 #ifndef ELEM_SIZE
-# define ELEM_SIZE 2048
+# define ELEM_SIZE 4096
 #endif
 
 #ifndef ALIGN_SIZE
-# define ALIGN_SIZE 8
+# define ALIGN_SIZE 4
 #endif
 
 #ifndef NUM_ELEMS
-# define NUM_ELEMS 1024
+# define NUM_ELEMS 4
 #endif
 
 #ifndef TEST_COUNT
-# define TEST_COUNT 128
+# define TEST_COUNT (1024 * 128)
 #endif
 
 #ifndef KEY_SIGN
@@ -115,7 +115,10 @@ typedef void (*sort_func_t)(void *p, size_t n, size_t size, int (*compar)(const 
 
 /* using static noinline to make it easier to examine generated code */
 static __noinline __flatten void my_quicksort(void *p, size_t n, size_t elem_size, int (*compar)(const void *, const void *, void *arg), void *arg) {
-	_quicksort_template(&my_def, p, n, my_cmp, NULL);
+	int ret = qsort_template(&my_def, p, n, NULL);
+
+	if (ret)
+		fatal_error("qsort_template returned %d\n", ret);
 }
 
 static void dump_keys(void * const data[4], size_t n, const char *heading) {
@@ -149,15 +152,18 @@ static void dump_keys(void * const data[4], size_t n, const char *heading) {
 			fprintf(stderr, "%08lx: %08x %08x %08x %08x\n",
 				i * sizeof(**p),
 				p[0][i], p[1][i], p[2][i], p[3][i]);
-	} else {
-		const uint64_t **p = (const uint64_t **)data;
+	} else if (ELEM_SIZE >= 8) {
+		const char **p = (const char **)data;
 
 		fprintf(stderr, "%-9s %-16s %-16s %-16s %-16s\n",
 				"offset", "orig", "mine", "qsort", "msort");
 		for (i = 0; i < n; ++i)
 			fprintf(stderr, "%08lx: %016lx %016lx %016lx %016lx\n",
 				i * sizeof(**p),
-				p[0][i], p[1][i], p[2][i], p[3][i]);
+                                *(uint64_t*)(&p[0][i * ELEM_SIZE]),
+                                *(uint64_t*)(&p[1][i * ELEM_SIZE]),
+                                *(uint64_t*)(&p[2][i * ELEM_SIZE]),
+                                *(uint64_t*)(&p[3][i * ELEM_SIZE]));
 	}
 }
 
@@ -169,7 +175,6 @@ void validate_sort(size_t n, size_t elem_size, size_t min_align, unsigned int se
 	size_t bytes = n * elem_size;
 	size_t i;
 
-	assert(!((uintptr_t)p & (min_align - 1)));
 	BUILD_BUG_ON(sizeof(struct size_type) != ELEM_SIZE);
 
 	/* allocate buffers */
@@ -193,6 +198,11 @@ void validate_sort(size_t n, size_t elem_size, size_t min_align, unsigned int se
 	my_quicksort(data[1], n, elem_size, my_cmp, NULL);
 	_quicksort  (data[2], n, elem_size, my_cmp, NULL);
 	qsort_r     (data[3], n, elem_size, my_cmp, NULL);
+
+#if 0
+	/* un-comment to induce error */
+	*((int*)data[1]) -= 1;
+#endif
 
 	/* compare result of my_quicksort against results of other algos */
 	for (i = 2; i < DATA_SIZE - 1; ++i) {
